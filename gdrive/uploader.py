@@ -39,11 +39,51 @@ except ImportError as e:
 # Key: (parent_id, folder_name) | Value: drive_folder_id
 _folder_id_cache: Dict[Tuple[Optional[str], str], str] = {}
 
+def restore_secrets_from_env():
+    """
+    Checks if Google credentials or tokens are present in Streamlit secrets
+    and writes them to disk so Google API libraries can read them natively.
+    """
+    token_path = settings.base_dir / "token.json"
+    cred_path = settings.google_credentials_path
+
+    try:
+        import streamlit as st
+        # 1. Restore credentials.json
+        if "GOOGLE_CREDENTIALS_JSON" in st.secrets:
+            cred_content = st.secrets["GOOGLE_CREDENTIALS_JSON"]
+            if cred_content:
+                with open(cred_path, "w", encoding="utf-8") as f:
+                    f.write(cred_content.strip())
+                logger.info("Restored credentials.json from Streamlit Secrets.")
+
+        # 2. Restore token.json
+        if "GOOGLE_TOKEN_JSON" in st.secrets:
+            token_content = st.secrets["GOOGLE_TOKEN_JSON"]
+            if token_content:
+                with open(token_path, "w", encoding="utf-8") as f:
+                    f.write(token_content.strip())
+                logger.info("Restored token.json from Streamlit Secrets.")
+                
+        # 3. Restore GDRIVE_PARENT_FOLDER_ID env variable
+        if "GDRIVE_PARENT_FOLDER_ID" in st.secrets:
+            os.environ["GDRIVE_PARENT_FOLDER_ID"] = st.secrets["GDRIVE_PARENT_FOLDER_ID"]
+            
+        # 4. Restore PINTEREST_HEADLESS env variable
+        if "PINTEREST_HEADLESS" in st.secrets:
+            os.environ["PINTEREST_HEADLESS"] = str(st.secrets["PINTEREST_HEADLESS"])
+
+    except Exception as e:
+        logger.debug(f"Streamlit secrets not available: {e}")
+
 def get_gdrive_credentials() -> Tuple[Optional[Credentials], Optional[str]]:
     """
     Retrieves credentials from token.json or runs local OAuth server using credentials.json.
     Returns: (credentials, error_message)
     """
+    # Restore credentials from Streamlit secrets if running in cloud environment
+    restore_secrets_from_env()
+    
     token_path = settings.base_dir / "token.json"
     creds = None
     
