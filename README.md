@@ -132,3 +132,4 @@ You can run the agent directly from the terminal for automation:
   ```bash
   python main.py --run-scheduler
   ```
+"# PintrestMehndiAgent" 
