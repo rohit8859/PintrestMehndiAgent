@@ -1,0 +1,28 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local Configurations & Secrets
+.env
+credentials.json
+token.json
+
+# Local Data & Database
+*.db
+downloads/
+temp/
+
+# Application Logs
+logs/
+*.log
+
+# Streamlit config (if any)
+.streamlit/

@@ -1,0 +1,13 @@
+{
+  "pinterest_keywords": {
+    "Bridal": "Bridal Mehndi Design"
+  },
+  "default_image_count": 100,
+  "scheduler": {
+    "enabled": false,
+    "interval": "daily",
+    "time": "02:00",
+    "day_of_week": "monday",
+    "day_of_month": 1
+  }
+}
