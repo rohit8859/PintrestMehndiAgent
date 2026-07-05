@@ -575,6 +575,45 @@ elif menu == "☁️ Google Drive Sync":
             db.end_sync_run(run_id, "COMPLETED")
             st.rerun()
 
+    st.markdown("---")
+    st.subheader("🗑️ Reset Sync History Database")
+    st.warning("⚠️ WARNING: Resetting the database will delete your entire download/upload history log. The agent will start downloading all Pinterest images from scratch (which could create duplicates if you don't clear your Google Drive folders as well).")
+    
+    confirm_reset = st.checkbox("I understand that this deletes all sync history logs and cannot be undone.")
+    reset_btn = st.button("Reset & Overwrite Sync Database", type="secondary", disabled=not confirm_reset)
+    
+    if reset_btn and confirm_reset:
+        with st.spinner("Resetting sync history..."):
+            try:
+                db_path = settings.db_path
+                # Try truncating tables first (safest, prevents Windows file lock issues)
+                try:
+                    with db._get_connection() as conn:
+                        conn.execute("DELETE FROM images")
+                        conn.execute("DELETE FROM sync_history")
+                        conn.commit()
+                except Exception:
+                    # Fallback to file deletion if table clean fails
+                    if db_path.exists():
+                        try:
+                            os.remove(db_path)
+                        except Exception:
+                            pass
+                    db._init_db()
+                
+                # Overwrite the Google Drive database with the reset empty database
+                service = uploader.get_drive_service()
+                if uploader.upload_db_to_drive(service):
+                    st.success("🎉 Sync database has been successfully reset locally and on Google Drive! The agent will now download new images starting from scratch.")
+                    st.session_state.db_downloaded_from_drive = True
+                    time.sleep(2)
+                    st.rerun()
+                else:
+                    st.error("Failed to upload the reset database to Google Drive. Please check your credentials.")
+            except Exception as e:
+                st.error(f"Error resetting database: {e}")
+
+
 elif menu == "🕒 Scheduler":
     st.title("🕒 Automation Scheduler")
     
