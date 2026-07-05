@@ -23,7 +23,7 @@ class DatabaseHelper:
                     pin_id TEXT UNIQUE,
                     original_url TEXT,
                     local_path TEXT,
-                    image_hash TEXT UNIQUE,
+                    image_hash TEXT,
                     category TEXT,
                     download_status TEXT,
                     upload_status TEXT,
@@ -111,20 +111,41 @@ class DatabaseHelper:
             return None
 
     def update_download_status(self, pin_id: str, status: str, local_path: Optional[str] = None, image_hash: Optional[str] = None, error_message: Optional[str] = None):
-        with self._get_connection() as conn:
-            conn.execute(
-                """
-                UPDATE images 
-                SET download_status = ?, 
-                    local_path = COALESCE(?, local_path), 
-                    image_hash = COALESCE(?, image_hash),
-                    error_message = COALESCE(?, error_message),
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE pin_id = ?
-                """,
-                (status, local_path, image_hash, error_message, pin_id)
-            )
-            conn.commit()
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    UPDATE images 
+                    SET download_status = ?, 
+                        local_path = COALESCE(?, local_path), 
+                        image_hash = COALESCE(?, image_hash),
+                        error_message = COALESCE(?, error_message),
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE pin_id = ?
+                    """,
+                    (status, local_path, image_hash, error_message, pin_id)
+                )
+                conn.commit()
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE constraint failed" in str(e) and "image_hash" in str(e):
+                try:
+                    with self._get_connection() as conn:
+                        conn.execute(
+                            """
+                            UPDATE images 
+                            SET download_status = ?, 
+                                local_path = COALESCE(?, local_path), 
+                                error_message = COALESCE(?, error_message),
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE pin_id = ?
+                            """,
+                            (status, local_path, error_message, pin_id)
+                        )
+                        conn.commit()
+                except Exception as inner_error:
+                    logger.error(f"Fallback DB update failed for {pin_id}: {inner_error}")
+            else:
+                raise
 
     def update_upload_status(self, pin_id: str, status: str, gdrive_file_id: Optional[str] = None, error_message: Optional[str] = None):
         with self._get_connection() as conn:

@@ -142,11 +142,31 @@ async def scrape_pinterest(
     pins_found = {}
     
     async with async_playwright() as p:
-        # Launch browser
-        browser = await p.chromium.launch(
-            headless=settings.pinterest_headless,
-            args=["--disable-dev-shm-usage", "--no-sandbox"]
-        )
+        # Launch browser (with auto-install fallback for cloud deployments)
+        try:
+            browser = await p.chromium.launch(
+                headless=settings.pinterest_headless,
+                args=["--disable-dev-shm-usage", "--no-sandbox"]
+            )
+        except Exception as launch_error:
+            error_str = str(launch_error)
+            if "Executable doesn't exist" in error_str or "playwright install" in error_str.lower():
+                logger.info("Playwright chromium browser not found. Attempting auto-installation...")
+                try:
+                    import sys
+                    import subprocess
+                    # Run playwright install chromium
+                    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+                    # Attempt launch again
+                    browser = await p.chromium.launch(
+                        headless=settings.pinterest_headless,
+                        args=["--disable-dev-shm-usage", "--no-sandbox"]
+                    )
+                except Exception as install_error:
+                    logger.error(f"Failed to auto-install Playwright browser: {install_error}")
+                    raise launch_error
+            else:
+                raise launch_error
         
         # Setup persistent context options (custom user agent to avoid bot detection)
         context = await browser.new_context(
