@@ -279,17 +279,7 @@ def run_sync_gui(target_count: int, selected_categories: list):
     run_id = st.session_state.current_run_id = str(time.time())[:8]
     log_gui(f"Initiating GUI manual sync run {run_id}")
     
-    # Try to sync database from Google Drive first
-    try:
-        log_gui("Downloading latest database from Google Drive...")
-        service = uploader.get_drive_service()
-        if uploader.download_db_from_drive(service):
-            db._init_db()
-            log_gui("Latest database downloaded successfully.")
-        else:
-            log_gui("No database found on Google Drive. Using local database.")
-    except Exception as e:
-        log_gui(f"Could not download database from Google Drive: {e}")
+    db._init_db()
         
     db.start_sync_run(run_id, ", ".join(selected_categories))
     

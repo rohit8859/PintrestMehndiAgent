@@ -39,12 +39,7 @@ def run_sync_for_all(
     if progress_callback:
         progress_callback(msg)
         
-    # Sync database from Google Drive first
-    try:
-        service = get_drive_service()
-        download_db_from_drive(service)
-    except Exception as e:
-        logger.warning(f"Could not download database from Google Drive at startup: {e}")
+    db._init_db()
         
     db.start_sync_run(run_id, "ALL_CATEGORIES")
     
