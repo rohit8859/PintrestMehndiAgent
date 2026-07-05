@@ -162,6 +162,7 @@ def get_or_create_folder(service, folder_name: str, parent_id: Optional[str] = N
             q=query,
             spaces="drive",
             fields="files(id, name)",
+            orderBy="createdTime desc",
             pageSize=1
         ).execute()
         
@@ -429,7 +430,12 @@ def download_db_from_drive(service) -> bool:
         
         # Search for mehndi_agent.db in the root folder
         query = f"name = 'mehndi_agent.db' and '{root_folder_id}' in parents and trashed = false"
-        results = service.files().list(q=query, spaces="drive", fields="files(id, name)").execute()
+        results = service.files().list(
+            q=query, 
+            spaces="drive", 
+            fields="files(id, name)",
+            orderBy="modifiedTime desc"
+        ).execute()
         files = results.get("files", [])
         
         if not files:

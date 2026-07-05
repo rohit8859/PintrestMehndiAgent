@@ -566,6 +566,41 @@ elif menu == "☁️ Google Drive Sync":
             st.rerun()
 
     st.markdown("---")
+    st.subheader("💾 Database Sync Management")
+    st.write("Manually fetch the latest database file from Google Drive to synchronize runs performed in the cloud, or backup your local database.")
+    
+    col_sync1, col_sync2 = st.columns(2)
+    with col_sync1:
+        if st.button("Download latest database from Drive"):
+            with st.spinner("Downloading database..."):
+                try:
+                    service = uploader.get_drive_service()
+                    if uploader.download_db_from_drive(service):
+                        db._init_db()
+                        st.success("Successfully synchronized and loaded database from Google Drive!")
+                        st.session_state.db_downloaded_from_drive = True
+                        time.sleep(2)
+                        st.rerun()
+                    else:
+                        st.error("No database file found on Google Drive to download.")
+                except Exception as e:
+                    st.error(f"Download failed: {e}")
+                    
+    with col_sync2:
+        if st.button("Upload local database to Drive"):
+            with st.spinner("Uploading database..."):
+                try:
+                    service = uploader.get_drive_service()
+                    if uploader.upload_db_to_drive(service):
+                        st.success("Successfully backed up local database to Google Drive!")
+                        time.sleep(2)
+                        st.rerun()
+                    else:
+                        st.error("Failed to upload database to Google Drive.")
+                except Exception as e:
+                    st.error(f"Upload failed: {e}")
+
+    st.markdown("---")
     st.subheader("🗑️ Reset Sync History Database")
     st.warning("⚠️ WARNING: Resetting the database will delete your entire download/upload history log. The agent will start downloading all Pinterest images from scratch (which could create duplicates if you don't clear your Google Drive folders as well).")
     
