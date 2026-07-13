@@ -49,20 +49,41 @@ def restore_secrets_from_env():
 
     try:
         import streamlit as st
+        import json
+        
+        # Helper to convert secret to json string whether it is a string or parsed dict
+        def parse_secret_to_json_str(content) -> Optional[str]:
+            if not content:
+                return None
+            if isinstance(content, str):
+                return content.strip()
+            # If Streamlit parsed it into a dict/AttrDict, serialize back to json
+            try:
+                def to_dict(obj):
+                    if isinstance(obj, dict):
+                        return {k: to_dict(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [to_dict(x) for x in obj]
+                    return obj
+                return json.dumps(to_dict(content), indent=2)
+            except Exception as e:
+                logger.error(f"Error serializing secret dictionary: {e}")
+                return str(content)
+
         # 1. Restore credentials.json
         if "GOOGLE_CREDENTIALS_JSON" in st.secrets:
-            cred_content = st.secrets["GOOGLE_CREDENTIALS_JSON"]
-            if cred_content:
+            cred_str = parse_secret_to_json_str(st.secrets["GOOGLE_CREDENTIALS_JSON"])
+            if cred_str:
                 with open(cred_path, "w", encoding="utf-8") as f:
-                    f.write(cred_content.strip())
+                    f.write(cred_str)
                 logger.info("Restored credentials.json from Streamlit Secrets.")
 
         # 2. Restore token.json
         if "GOOGLE_TOKEN_JSON" in st.secrets:
-            token_content = st.secrets["GOOGLE_TOKEN_JSON"]
-            if token_content:
+            token_str = parse_secret_to_json_str(st.secrets["GOOGLE_TOKEN_JSON"])
+            if token_str:
                 with open(token_path, "w", encoding="utf-8") as f:
-                    f.write(token_content.strip())
+                    f.write(token_str)
                 logger.info("Restored token.json from Streamlit Secrets.")
                 
         # 3. Restore GDRIVE_PARENT_FOLDER_ID env variable
