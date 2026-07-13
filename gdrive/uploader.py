@@ -51,13 +51,19 @@ def restore_secrets_from_env():
         import streamlit as st
         import json
         
+
         # Helper to convert secret to json string whether it is a string or parsed dict
-        def parse_secret_to_json_str(content) -> Optional[str]:
+        def parse_secret_to_json_str(content, name: str) -> Optional[str]:
             if not content:
                 return None
             if isinstance(content, str):
+                try:
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict):
+                        logger.info(f"Loaded {name} string secret with keys: {list(parsed.keys())}")
+                except Exception as e:
+                    logger.warning(f"Failed to parse {name} secret string as JSON: {e}")
                 return content.strip()
-            # If Streamlit parsed it into a dict/AttrDict, serialize back to json
             try:
                 def to_dict(obj):
                     if isinstance(obj, dict):
@@ -65,14 +71,16 @@ def restore_secrets_from_env():
                     elif isinstance(obj, list):
                         return [to_dict(x) for x in obj]
                     return obj
-                return json.dumps(to_dict(content), indent=2)
+                parsed_dict = to_dict(content)
+                logger.info(f"Loaded {name} dict secret with keys: {list(parsed_dict.keys())}")
+                return json.dumps(parsed_dict, indent=2)
             except Exception as e:
                 logger.error(f"Error serializing secret dictionary: {e}")
                 return str(content)
 
         # 1. Restore credentials.json
         if "GOOGLE_CREDENTIALS_JSON" in st.secrets:
-            cred_str = parse_secret_to_json_str(st.secrets["GOOGLE_CREDENTIALS_JSON"])
+            cred_str = parse_secret_to_json_str(st.secrets["GOOGLE_CREDENTIALS_JSON"], "GOOGLE_CREDENTIALS_JSON")
             if cred_str:
                 with open(cred_path, "w", encoding="utf-8") as f:
                     f.write(cred_str)
@@ -80,7 +88,7 @@ def restore_secrets_from_env():
 
         # 2. Restore token.json
         if "GOOGLE_TOKEN_JSON" in st.secrets:
-            token_str = parse_secret_to_json_str(st.secrets["GOOGLE_TOKEN_JSON"])
+            token_str = parse_secret_to_json_str(st.secrets["GOOGLE_TOKEN_JSON"], "GOOGLE_TOKEN_JSON")
             if token_str:
                 with open(token_path, "w", encoding="utf-8") as f:
                     f.write(token_str)
