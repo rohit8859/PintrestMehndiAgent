@@ -79,6 +79,7 @@ def restore_secrets_from_env():
                 return str(content)
 
         # 1. Restore credentials.json
+        cred_str = None
         if "GOOGLE_CREDENTIALS_JSON" in st.secrets:
             cred_str = parse_secret_to_json_str(st.secrets["GOOGLE_CREDENTIALS_JSON"], "GOOGLE_CREDENTIALS_JSON")
             if cred_str:
@@ -90,6 +91,61 @@ def restore_secrets_from_env():
         if "GOOGLE_TOKEN_JSON" in st.secrets:
             token_str = parse_secret_to_json_str(st.secrets["GOOGLE_TOKEN_JSON"], "GOOGLE_TOKEN_JSON")
             if token_str:
+                try:
+                    token_data = json.loads(token_str)
+                    modified = False
+                    
+                    # Normalize 'access_token' to 'token'
+                    if "access_token" in token_data and "token" not in token_data:
+                        token_data["token"] = token_data["access_token"]
+                        modified = True
+                        
+                    # Normalize 'expiry_date' to 'expiry'
+                    if "expiry_date" in token_data and "expiry" not in token_data:
+                        val = token_data["expiry_date"]
+                        if isinstance(val, (int, float)):
+                            import datetime
+                            if val > 1e11:
+                                val = val / 1000.0
+                            dt = datetime.datetime.fromtimestamp(val, tz=datetime.timezone.utc)
+                            token_data["expiry"] = dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+                        else:
+                            token_data["expiry"] = str(val)
+                        modified = True
+                        
+                    # Add default token_uri
+                    if "token_uri" not in token_data:
+                        token_data["token_uri"] = "https://oauth2.googleapis.com/token"
+                        modified = True
+                        
+                    # Inject client_id and client_secret if missing
+                    if ("client_id" not in token_data or "client_secret" not in token_data) and cred_str:
+                        try:
+                            cred_data = json.loads(cred_str)
+                            client_id = None
+                            client_secret = None
+                            if "installed" in cred_data:
+                                client_id = cred_data["installed"].get("client_id")
+                                client_secret = cred_data["installed"].get("client_secret")
+                            elif "web" in cred_data:
+                                client_id = cred_data["web"].get("client_id")
+                                client_secret = cred_data["web"].get("client_secret")
+                                
+                            if client_id and "client_id" not in token_data:
+                                token_data["client_id"] = client_id
+                                modified = True
+                            if client_secret and "client_secret" not in token_data:
+                                token_data["client_secret"] = client_secret
+                                modified = True
+                        except Exception as cred_err:
+                            logger.warning(f"Could not extract client info from credentials for injection: {cred_err}")
+                            
+                    if modified:
+                        token_str = json.dumps(token_data, indent=2)
+                        logger.info(f"Normalized token.json. Resulting keys: {list(token_data.keys())}")
+                except Exception as norm_err:
+                    logger.warning(f"Error normalizing token.json: {norm_err}")
+
                 with open(token_path, "w", encoding="utf-8") as f:
                     f.write(token_str)
                 logger.info("Restored token.json from Streamlit Secrets.")
