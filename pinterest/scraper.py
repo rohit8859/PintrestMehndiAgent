@@ -168,15 +168,26 @@ async def scrape_pinterest(
             else:
                 raise launch_error
         
-        # Setup persistent context options (custom user agent to avoid bot detection)
+        # Setup persistent context options (custom user agent and headers to avoid bot detection)
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
+            viewport={"width": 1280, "height": 800},
+            extra_http_headers={
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+            }
         )
         
         page = await context.new_page()
         
         try:
+            # First visit home page to establish session/cookies and look human
+            logger.info("Navigating to Pinterest home page first...")
+            await page.goto("https://www.pinterest.com/", wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(2000)
+            
+            # Now navigate to search page
+            logger.info(f"Navigating to search page: {search_url}")
             await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
             # Wait for content
             await page.wait_for_timeout(settings.pinterest_delay * 1000)
@@ -226,6 +237,25 @@ async def scrape_pinterest(
                 await page.wait_for_timeout(settings.pinterest_delay * 1000)
                 scroll_attempts += 1
                 
+            # If we found no pins, save a diagnostic screenshot and upload it to Google Drive
+            if len(pins_found) == 0:
+                try:
+                    screenshot_path = settings.base_dir / "downloads" / f"scrape_error_{category}.png"
+                    screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+                    await page.screenshot(path=str(screenshot_path))
+                    logger.info(f"Saved diagnostic screenshot of page to: {screenshot_path}")
+                    
+                    # Direct upload to Google Drive under 'Diagnostics' folder
+                    try:
+                        from gdrive import uploader
+                        service = uploader.get_drive_service()
+                        file_id = uploader.upload_file_to_drive(service, str(screenshot_path), "Diagnostics")
+                        logger.info(f"Uploaded diagnostic screenshot to Google Drive. File ID: {file_id}")
+                    except Exception as upload_err:
+                        logger.warning(f"Could not upload diagnostic screenshot to Google Drive: {upload_err}")
+                except Exception as ss_error:
+                    logger.warning(f"Could not take/upload diagnostic screenshot: {ss_error}")
+
             logger.info(f"Finished scraping '{category}'. Total unique pins found: {len(pins_found)}")
             if progress_callback:
                 progress_callback(len(pins_found), target_count, f"Scraping complete. Found {len(pins_found)} pins.")
