@@ -84,25 +84,26 @@ async def extract_pins_from_page(page: Page, category: str) -> List[dict]:
                 pin_id = None
                 for _ in range(5):  # Traverse up to 5 levels
                     parent_node = await parent.evaluate_handle("node => node.parentElement")
-                    if not parent_node or parent_node.is_element() is False:
+                    if not parent_node:
+                        break
+                    element = parent_node.as_element()
+                    if not element:
                         break
                     
-                    # Cast parent_node back to element handle to run query selector
-                    # Note: We can evaluate if it has an anchor inside it or if it is an anchor
-                    tag_name = await parent_node.evaluate("node => node.tagName.toLowerCase()")
+                    tag_name = await element.evaluate("node => node.tagName.toLowerCase()")
                     if tag_name == "a":
-                        href = await parent_node.evaluate("node => node.getAttribute('href')")
+                        href = await element.evaluate("node => node.getAttribute('href')")
                         if href and "/pin/" in href:
                             pin_id = extract_pin_id_from_url(href)
                             break
                     else:
-                        anchor = await parent_node.as_element().query_selector("a[href^='/pin/']")
+                        anchor = await element.query_selector("a[href^='/pin/']")
                         if anchor:
                             href = await anchor.get_attribute("href")
                             if href:
                                 pin_id = extract_pin_id_from_url(href)
                                 break
-                    parent = parent_node.as_element()
+                    parent = element
                 
                 if not pin_id:
                     pin_id = extract_pin_id_from_img_url(img_src)
@@ -222,7 +223,14 @@ async def scrape_pinterest(
             # Now navigate to search page
             logger.info(f"Navigating to search page: {search_url}")
             await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-            # Wait for content
+            
+            # Wait for the first image or pin wrapper to load to ensure grid is rendered
+            try:
+                await page.wait_for_selector("div[data-test-id='pinWrapper'], img[src*='pinimg.com']", timeout=10000)
+            except Exception as wait_err:
+                logger.debug(f"Timeout waiting for pin wrappers/images: {wait_err}")
+                
+            # Additional small delay for dynamic page render stability
             await page.wait_for_timeout(settings.pinterest_delay * 1000)
             
             scroll_attempts = 0
