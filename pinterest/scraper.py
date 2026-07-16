@@ -123,6 +123,39 @@ async def extract_pins_from_page(page: Page, category: str) -> List[dict]:
         
     return list(unique_extracted.values())
 
+async def dismiss_login_modal(page: Page):
+    """
+    Remove Pinterest's login overlay/modal from the DOM and re-enable scrolling on the body.
+    """
+    try:
+        # Run JS to find and remove fixed overlays containing login/signup elements and re-enable scrolling
+        await page.evaluate("""() => {
+            // Find and remove elements with fixed/absolute position and high z-index or containing login text
+            const divs = Array.from(document.querySelectorAll('div'));
+            divs.forEach(el => {
+                const style = window.getComputedStyle(el);
+                const isFixed = style.position === 'fixed' || style.position === 'absolute';
+                const hasHighZ = parseInt(style.zIndex) > 5;
+                const hasLoginText = el.innerText && (el.innerText.includes('Log in to see more') || el.innerText.includes('Sign up to see more') || el.innerText.includes('Log in to Pinterest'));
+                
+                if (isFixed && (hasHighZ || hasLoginText)) {
+                    el.remove();
+                }
+            });
+            
+            // Also look for common modal selectors or role='dialog'
+            const dialogs = document.querySelectorAll('div[role="dialog"], div[class*="Modal"], div[class*="modal"], div[class*="Signup"], div[class*="signup"]');
+            dialogs.forEach(el => el.remove());
+            
+            // Re-enable scrolling
+            document.body.style.setProperty('overflow', 'auto', 'important');
+            document.documentElement.style.setProperty('overflow', 'auto', 'important');
+            document.body.style.setProperty('position', 'static', 'important');
+        }""")
+        logger.debug("Attempted to dismiss login modal and re-enable scrolling.")
+    except Exception as e:
+        logger.warning(f"Error dismissing login modal: {e}")
+
 async def scrape_pinterest(
     keyword: str,
     category: str,
@@ -197,6 +230,9 @@ async def scrape_pinterest(
             no_new_count = 0
             
             while len(pins_found) < target_count and no_new_count < max_scroll_no_new:
+                # Remove any login modal overlay and restore scrollability
+                await dismiss_login_modal(page)
+                
                 # Extract pins currently in DOM
                 batch = await extract_pins_from_page(page, category)
                 
