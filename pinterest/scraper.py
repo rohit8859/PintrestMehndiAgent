@@ -214,6 +214,60 @@ async def scrape_pinterest(
         
         page = await context.new_page()
         
+        # Inject standard style sheet overrides and continuous cleaner loop inside the browser context
+        # to ensure the login popup modal never renders or locks the scroll actions.
+        try:
+            await page.add_init_script("""() => {
+                const style = document.createElement('style');
+                style.innerHTML = `
+                    body, html {
+                        overflow: auto !important;
+                        overflow-y: auto !important;
+                        position: static !important;
+                    }
+                    div[role='dialog'],
+                    div[class*='Modal'],
+                    div[class*='modal'],
+                    div[class*='Signup'],
+                    div[class*='signup'],
+                    div[class*='Overlay'],
+                    div[class*='overlay'] {
+                        display: none !important;
+                        visibility: hidden !important;
+                        opacity: 0 !important;
+                        pointer-events: none !important;
+                    }
+                `;
+                document.head.appendChild(style);
+                
+                // Continuous cleaner to remove fixed overlays containing login/signup elements
+                setInterval(() => {
+                    const divs = Array.from(document.querySelectorAll('div'));
+                    divs.forEach(el => {
+                        const style = window.getComputedStyle(el);
+                        const isFixed = style.position === 'fixed' || style.position === 'absolute';
+                        const hasLoginText = el.innerText && (
+                            el.innerText.includes('Log in to see more') || 
+                            el.innerText.includes('Sign up to see more') || 
+                            el.innerText.includes('Log in to Pinterest')
+                        );
+                        if (isFixed && hasLoginText) {
+                            el.remove();
+                        }
+                    });
+                    
+                    // Force scrollable body styles
+                    if (document.body && document.body.style.overflow !== 'auto') {
+                        document.body.style.setProperty('overflow', 'auto', 'important');
+                        document.documentElement.style.setProperty('overflow', 'auto', 'important');
+                        document.body.style.setProperty('position', 'static', 'important');
+                    }
+                }, 400);
+            }""")
+            logger.info("Initialized browser bypass script for login popups.")
+        except Exception as script_err:
+            logger.warning(f"Could not register page init script: {script_err}")
+            
         try:
             # First visit home page to establish session/cookies and look human
             logger.info("Navigating to Pinterest home page first...")
