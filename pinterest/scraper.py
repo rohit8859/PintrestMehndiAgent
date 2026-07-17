@@ -294,20 +294,27 @@ def _extract_pins_from_json(data, pins_dict):
 
 
 def get_query_variations(keyword: str) -> List[str]:
-    """Generate slight variations of the keyword to bypass Pinterest unauthenticated search limits."""
+    """Generate high-diversity variations of the keyword to bypass Pinterest unauthenticated search limits and result collapsing."""
     variations = [keyword]
     
-    modifiers = ["best", "beautiful", "simple", "latest", "new", "easy"]
-    words = keyword.split()
+    # Contextual modifiers that change the search results drastically (styles, years, hands)
+    modifiers = [
+        "arabic", "simple", "heavy", "full hand", "back hand", 
+        "front hand", "dulhan", "easy", "2026", "2025", 
+        "latest", "beautiful", "elegant", "traditional"
+    ]
+    words = [w.lower() for w in keyword.split()]
     
     for mod in modifiers:
-        if mod not in words:
-            variations.append(f"{mod} {keyword}")
+        # Avoid duplicating words already in the keyword
+        mod_words = mod.split()
+        if not any(mw in words for mw in mod_words):
             variations.append(f"{keyword} {mod}")
+            variations.append(f"{mod} {keyword}")
             
-    # Remove duplicate queries and cap to 8 variations total
+    # Remove duplicate queries and cap to 15 variations total
     unique_vars = list(dict.fromkeys(variations))
-    return unique_vars[:8]
+    return unique_vars[:15]
 
 
 # =============================================================================
@@ -611,8 +618,8 @@ async def scrape_pinterest(
                     except Exception as detail_err:
                         logger.warning(f"Failed to fetch related pins for {seed_id}: {detail_err}")
 
-            # If no pins found, save diagnostics
-            if len(pins_found) == 0:
+            # If target count not reached, save diagnostics for troubleshooting
+            if len(pins_found) < target_count:
                 try:
                     screenshot_path = settings.base_dir / "downloads" / f"scrape_error_{category}.png"
                     screenshot_path.parent.mkdir(parents=True, exist_ok=True)
