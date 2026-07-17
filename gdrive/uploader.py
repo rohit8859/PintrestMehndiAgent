@@ -207,7 +207,7 @@ def get_gdrive_credentials() -> Tuple[Optional[Credentials], Optional[str]]:
             try:
                 logger.info("Initiating Google OAuth flow...")
                 flow = InstalledAppFlow.from_client_secrets_file(str(cred_json_path), SCOPES)
-                creds = flow.run_local_server(port=0)
+                creds = flow.run_local_server(port=8090)
                 # Save credentials for future use
                 with open(token_path, "w") as token_file:
                     token_file.write(creds.to_json())
