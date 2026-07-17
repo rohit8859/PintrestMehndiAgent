@@ -293,6 +293,36 @@ def _extract_pins_from_json(data, pins_dict):
             _extract_pins_from_json(item, pins_dict)
 
 
+def get_query_variations(keyword: str) -> List[str]:
+    """Generate slight variations of the keyword to bypass Pinterest unauthenticated search limits."""
+    variations = [keyword]
+    
+    # Common prefixes and suffixes for search queries
+    modifiers = [
+        "best", "beautiful", "simple", "latest", "new", "easy", 
+        "modern", "traditional", "unique", "stylish", "elegant",
+        "creative", "photo", "image", "ideas", "patterns"
+    ]
+    
+    words = keyword.split()
+    
+    # Add variations by prefixing/suffixing modifiers
+    for mod in modifiers:
+        if mod not in words:
+            variations.append(f"{mod} {keyword}")
+            variations.append(f"{keyword} {mod}")
+            
+    # Also try reversing first two words if there are multiple words
+    if len(words) >= 2:
+        reversed_q = " ".join([words[1], words[0]] + words[2:])
+        variations.append(reversed_q)
+        for mod in modifiers[:5]:
+            variations.append(f"{mod} {reversed_q}")
+            
+    # Remove duplicate queries and preserve order
+    return list(dict.fromkeys(variations))
+
+
 # =============================================================================
 # MAIN SCRAPER
 # =============================================================================
@@ -310,8 +340,8 @@ async def scrape_pinterest(
     """
     logger.info(f"Starting Pinterest scraper for '{category}' (Keyword: '{keyword}') aiming for {target_count} images.")
     
-    query_encoded = urllib.parse.quote(keyword)
-    search_url = f"https://www.pinterest.com/search/pins/?q={query_encoded}"
+    queries_to_try = get_query_variations(keyword)
+    logger.info(f"Generated {len(queries_to_try)} query variations to bypass guest limits: {queries_to_try[:5]}...")
     
     pins_found = {}
     api_captured_pins = {}
@@ -393,114 +423,125 @@ async def scrape_pinterest(
             except Exception:
                 pass
             
-            logger.info(f"Navigating to search page: {search_url}")
-            await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-            
-            # Wait for content to load
-            try:
-                await page.wait_for_selector(
-                    "div[data-test-id='pinWrapper'], img[src*='pinimg.com'], a[href*='/pin/']",
-                    timeout=15000
-                )
-                logger.info("Pin grid detected in DOM.")
-            except Exception:
-                logger.warning("Pin grid not detected within timeout. Will try extraction anyway.")
-            
-            await page.wait_for_timeout(settings.pinterest_delay * 1000)
-            
-            scroll_attempts = 0
-            max_scroll_no_new = 15
-            no_new_count = 0
-            html_source_tried = False
-            
-            while len(pins_found) < target_count and no_new_count < max_scroll_no_new:
-                try:
-                    await page.evaluate(MODAL_DISMISS_SCRIPT)
-                except Exception:
-                    pass
-                
-                # --- STRATEGY 1: Comprehensive JavaScript Extraction ---
-                batch = []
-                try:
-                    js_result = await page.evaluate(COMPREHENSIVE_JS_EXTRACT)
-                    debug = js_result.get("debug", {})
-                    raw_pins = js_result.get("results", [])
-                    
-                    if scroll_attempts == 0:
-                        logger.info(
-                            f"Page DOM: imgs={debug.get('totalImgs', '?')}, "
-                            f"pinimg_src={debug.get('pinimgInSrc', '?')}, "
-                            f"pinimg_srcset={debug.get('pinimgInSrcset', '?')}, "
-                            f"pin_links={debug.get('pinLinks', '?')}, "
-                            f"wrappers={debug.get('pinWrappers', '?')}"
-                        )
-                    
-                    batch = [
-                        {"pin_id": p["pin_id"], "original_url": p["img_url"], "category": category}
-                        for p in raw_pins
-                    ]
-                    if batch:
-                        logger.debug(f"JS extraction found {len(batch)} pins in this batch.")
-                except Exception as e:
-                    logger.error(f"JS extraction error: {e}")
-                
-                # --- STRATEGY 2: Page Source Regex (if JS found nothing) ---
-                if not batch and not html_source_tried:
-                    html_source_tried = True
-                    try:
-                        html = await page.content()
-                        batch = extract_pins_from_html_source(html, category)
-                        if batch:
-                            logger.info(f"HTML source regex found {len(batch)} pins.")
-                    except Exception as e:
-                        logger.error(f"HTML source extraction error: {e}")
-                
-                # --- STRATEGY 3: Network API Captured Pins ---
-                if not batch and api_captured_pins:
-                    logger.info(f"Using {len(api_captured_pins)} pins from network API interception.")
-                    for pin_id, img_url in api_captured_pins.items():
-                        batch.append({
-                            "pin_id": pin_id,
-                            "original_url": get_original_url(img_url),
-                            "category": category
-                        })
-                
-                # --- Process Batch ---
-                new_pins_in_batch = 0
-                skipped_existing = 0
-                for pin in batch:
-                    pin_id = pin["pin_id"]
-                    
-                    status = db.get_pin_status(pin_id)
-                    if status in ("DOWNLOADED", "DUPLICATE"):
-                        skipped_existing += 1
-                        continue
-                        
-                    if pin_id not in pins_found:
-                        pins_found[pin_id] = pin
-                        new_pins_in_batch += 1
-                        db.insert_pending_image(pin_id, pin["original_url"], category)
-                
-                logger.info(
-                    f"Scrape progress for '{category}': Found {len(pins_found)} / {target_count} pins. "
-                    f"(batch={len(batch)}, new={new_pins_in_batch}, skipped={skipped_existing})"
-                )
-                db.update_sync_progress(run_id, images_found=new_pins_in_batch)
-                
-                if progress_callback:
-                    progress_callback(len(pins_found), target_count, f"Scraped {len(pins_found)} pin URLs...")
-                
-                if new_pins_in_batch == 0:
-                    no_new_count += 1
-                else:
-                    no_new_count = 0
-                    
+            for q_idx, current_query in enumerate(queries_to_try):
                 if len(pins_found) >= target_count:
                     break
                     
-                await page.evaluate("window.scrollBy(0, 1200)")
-                await page.wait_for_timeout(settings.pinterest_delay * 1000)
-                scroll_attempts += 1
+                current_url = f"https://www.pinterest.com/search/pins/?q={urllib.parse.quote(current_query)}"
+                logger.info(f"Query {q_idx + 1}/{len(queries_to_try)}: Searching '{current_query}' -> {current_url}")
+                
+                if progress_callback:
+                    progress_callback(len(pins_found), target_count, f"Query {q_idx + 1}/{len(queries_to_try)}: Searching '{current_query}'...")
+                
+                try:
+                    await page.goto(current_url, wait_until="domcontentloaded", timeout=60000)
+                    
+                    # Wait for content to load
+                    try:
+                        await page.wait_for_selector(
+                            "div[data-test-id='pinWrapper'], img[src*='pinimg.com'], a[href*='/pin/']",
+                            timeout=15000
+                        )
+                        logger.info("Pin grid detected in DOM.")
+                    except Exception:
+                        logger.warning("Pin grid not detected within timeout. Will try extraction anyway.")
+                    
+                    await page.wait_for_timeout(settings.pinterest_delay * 1000)
+                    
+                    scroll_attempts = 0
+                    max_scroll_no_new = 5  # Switch query sooner if no new pins found to save time
+                    no_new_count = 0
+                    html_source_tried = False
+                    
+                    while len(pins_found) < target_count and no_new_count < max_scroll_no_new:
+                        try:
+                            await page.evaluate(MODAL_DISMISS_SCRIPT)
+                        except Exception:
+                            pass
+                        
+                        # --- STRATEGY 1: Comprehensive JavaScript Extraction ---
+                        batch = []
+                        try:
+                            js_result = await page.evaluate(COMPREHENSIVE_JS_EXTRACT)
+                            debug = js_result.get("debug", {})
+                            raw_pins = js_result.get("results", [])
+                            
+                            if scroll_attempts == 0:
+                                logger.info(
+                                    f"Page DOM: imgs={debug.get('totalImgs', '?')}, "
+                                    f"pinimg_src={debug.get('pinimgInSrc', '?')}, "
+                                    f"pinimg_srcset={debug.get('pinimgInSrcset', '?')}, "
+                                    f"pin_links={debug.get('pinLinks', '?')}, "
+                                    f"wrappers={debug.get('pinWrappers', '?')}"
+                                )
+                            
+                            batch = [
+                                {"pin_id": p["pin_id"], "original_url": p["img_url"], "category": category}
+                                for p in raw_pins
+                            ]
+                        except Exception as e:
+                            logger.error(f"JS extraction error: {e}")
+                        
+                        # --- STRATEGY 2: Page Source Regex (if JS found nothing) ---
+                        if not batch and not html_source_tried:
+                            html_source_tried = True
+                            try:
+                                html = await page.content()
+                                batch = extract_pins_from_html_source(html, category)
+                                if batch:
+                                    logger.info(f"HTML source regex found {len(batch)} pins.")
+                            except Exception as e:
+                                logger.error(f"HTML source extraction error: {e}")
+                        
+                        # --- STRATEGY 3: Network API Captured Pins ---
+                        if not batch and api_captured_pins:
+                            logger.info(f"Using {len(api_captured_pins)} pins from network API interception.")
+                            for pin_id, img_url in api_captured_pins.items():
+                                batch.append({
+                                    "pin_id": pin_id,
+                                    "original_url": get_original_url(img_url),
+                                    "category": category
+                                })
+                        
+                        # --- Process Batch ---
+                        new_pins_in_batch = 0
+                        skipped_existing = 0
+                        for pin in batch:
+                            pin_id = pin["pin_id"]
+                            
+                            status = db.get_pin_status(pin_id)
+                            if status in ("DOWNLOADED", "DUPLICATE"):
+                                skipped_existing += 1
+                                continue
+                                
+                            if pin_id not in pins_found:
+                                pins_found[pin_id] = pin
+                                new_pins_in_batch += 1
+                                db.insert_pending_image(pin_id, pin["original_url"], category)
+                        
+                        logger.info(
+                            f"Scrape progress for '{category}': Found {len(pins_found)} / {target_count} pins. "
+                            f"(batch={len(batch)}, new={new_pins_in_batch}, skipped={skipped_existing})"
+                        )
+                        db.update_sync_progress(run_id, images_found=new_pins_in_batch)
+                        
+                        if progress_callback:
+                            progress_callback(len(pins_found), target_count, f"Scraped {len(pins_found)} pin URLs...")
+                        
+                        if new_pins_in_batch == 0:
+                            no_new_count += 1
+                        else:
+                            no_new_count = 0
+                            
+                        if len(pins_found) >= target_count:
+                            break
+                            
+                        await page.evaluate("window.scrollBy(0, 1200)")
+                        await page.wait_for_timeout(settings.pinterest_delay * 1000)
+                        scroll_attempts += 1
+                        
+                except Exception as query_err:
+                    logger.warning(f"Error on query variation '{current_query}': {query_err}")
                 
             # --- FALLBACK: Related Pins Traversal (if scroll limit hit before target_count) ---
             if len(pins_found) < target_count and len(pins_found) > 0:
