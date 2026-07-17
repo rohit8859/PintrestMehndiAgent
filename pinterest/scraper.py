@@ -297,30 +297,17 @@ def get_query_variations(keyword: str) -> List[str]:
     """Generate slight variations of the keyword to bypass Pinterest unauthenticated search limits."""
     variations = [keyword]
     
-    # Common prefixes and suffixes for search queries
-    modifiers = [
-        "best", "beautiful", "simple", "latest", "new", "easy", 
-        "modern", "traditional", "unique", "stylish", "elegant",
-        "creative", "photo", "image", "ideas", "patterns"
-    ]
-    
+    modifiers = ["best", "beautiful", "simple", "latest", "new", "easy"]
     words = keyword.split()
     
-    # Add variations by prefixing/suffixing modifiers
     for mod in modifiers:
         if mod not in words:
             variations.append(f"{mod} {keyword}")
             variations.append(f"{keyword} {mod}")
             
-    # Also try reversing first two words if there are multiple words
-    if len(words) >= 2:
-        reversed_q = " ".join([words[1], words[0]] + words[2:])
-        variations.append(reversed_q)
-        for mod in modifiers[:5]:
-            variations.append(f"{mod} {reversed_q}")
-            
-    # Remove duplicate queries and preserve order
-    return list(dict.fromkeys(variations))
+    # Remove duplicate queries and cap to 8 variations total
+    unique_vars = list(dict.fromkeys(variations))
+    return unique_vars[:8]
 
 
 # =============================================================================
@@ -434,13 +421,13 @@ async def scrape_pinterest(
                     progress_callback(len(pins_found), target_count, f"Query {q_idx + 1}/{len(queries_to_try)}: Searching '{current_query}'...")
                 
                 try:
-                    await page.goto(current_url, wait_until="domcontentloaded", timeout=60000)
+                    await page.goto(current_url, wait_until="domcontentloaded", timeout=25000)
                     
                     # Wait for content to load
                     try:
                         await page.wait_for_selector(
                             "div[data-test-id='pinWrapper'], img[src*='pinimg.com'], a[href*='/pin/']",
-                            timeout=15000
+                            timeout=8000
                         )
                         logger.info("Pin grid detected in DOM.")
                     except Exception:
@@ -549,8 +536,8 @@ async def scrape_pinterest(
                 if progress_callback:
                     progress_callback(len(pins_found), target_count, f"Initiating related pins traversal (currently at {len(pins_found)})...")
                 
-                # Keep a list of seed pin IDs to visit
-                seed_pin_ids = list(pins_found.keys())
+                # Keep a list of seed pin IDs to visit (capped to 5 to avoid long runtimes)
+                seed_pin_ids = list(pins_found.keys())[:5]
                 
                 for seed_id in seed_pin_ids:
                     if len(pins_found) >= target_count:
